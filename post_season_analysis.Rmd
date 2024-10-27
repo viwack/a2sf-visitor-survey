@@ -1,0 +1,459 @@
+---
+title: "Post-Season Data Analysis"
+author: "viwa"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r echo=FALSE, message=FALSE, warning=FALSE, results="hide"}
+library(knitr)
+library(kableExtra)
+library(BSDA)
+library(tidyr)
+library(reshape2)
+library(dplyr)
+library(webshot)
+library(viridis)
+library(purrr)
+library(zipcodeR)
+library(usdata)
+library(ggplot2)
+library(leaflet)
+library(mapview)
+library(htmlwidgets)
+library(sf)
+library(tidygeocoder)
+library(lubridate)
+library(tigris)
+library(leaflet.extras)
+library(htmlwidgets)
+library(countries)
+library(cities)
+library(stringr)
+library(rcompanion)
+options(tigris_use_cache = TRUE, tigris_progress = FALSE)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season <- read.csv("post_season-processed.csv")
+```
+
+### 3. Post-Season Survey Analysis
+
+#### Where are visitors from? \
+
+*Understanding visitor hometowns by their manually collected zip codes.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+zip_ps <- post_season %>%
+  group_by(What.is.your.zip.code.) %>%
+  summarise(count = n()) %>%
+  mutate(grouped_count = case_when(
+    count == 1 ~ "Other",
+    TRUE ~ as.character(What.is.your.zip.code.)
+  ))
+
+zip_ps <- zip_ps %>%
+  group_by(grouped_count, count) %>%
+  summarise(count2 = n()) %>%
+  ungroup() %>%
+  mutate(combined = count*count2) %>%
+  select(grouped_count, combined)
+
+zip_ps <- zip_ps %>%
+  mutate(
+    fraction = combined / sum(combined),
+    ymax = cumsum(fraction),
+    ymin = c(0, head(ymax, n = -1)),
+    labelPosition = (ymax + ymin) / 2
+    ) %>%
+  mutate(label = paste0(grouped_count, " (", scales::percent(fraction), ")"))
+
+ggplot(zip_ps, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = as.factor(grouped_count))) +
+  geom_rect(color = "black") +
+  geom_text(x = 4.2, aes(y = labelPosition, label = label), size = 3) +
+  coord_polar(theta = "y") +
+  ggtitle("Visitors by Zip Code") +
+  scale_fill_brewer(palette = "RuPd") +
+  theme_void() +
+  theme(legend.position = "none")
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+counties_data <- counties(state = "MI", cb = TRUE)
+
+cities_data <- places(state = "MI", cb = TRUE)
+
+counties_michigan <- counties_data %>%
+  st_transform(crs = 4326)
+
+cities_michigan <- cities_data %>%
+  st_transform(crs = 4326)
+```
+
+*Secondary data visualization method, mapping visitor hometowns.*
+
+Rationale: Pie charts fail to visually assess distance and neighborhood from which participants traveled. Mapping is used to determine density and distance. First, use geocode() to add latitude and longitudes to the dataframe based on their zip code.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+ps_zip_code_data <- zipcodeR::reverse_zipcode(post_season$What.is.your.zip.code.)
+
+ungrouped_ps_zips <- post_season %>%
+  group_by(What.is.your.zip.code.) %>%
+  summarise(count = n())
+
+ungrouped_ps_zips <- ungrouped_ps_zips %>%
+  mutate(
+    fraction = count / sum(count),
+    ymax = cumsum(fraction),
+    ymin = c(0, head(ymax, n = -1)),
+    labelPosition = (ymax + ymin) / 2
+    )
+pos_grouped_count_zip <- zip_ps %>%
+  left_join(ps_zip_code_data, by = c('grouped_count' = 'zipcode')) %>%
+  filter(!is.na(zipcode_type))
+
+ps_count_zip <- ungrouped_ps_zips %>%
+  mutate(What.is.your.zip.code. = as.character(What.is.your.zip.code.)) %>%
+  left_join(ps_zip_code_data, by = c('What.is.your.zip.code.' = 'zipcode')) %>%
+  filter(!is.na(zipcode_type))
+```
+
+
+```{r, results="asis", echo=FALSE, warning= FALSE, message= FALSE}
+zip_codes_map <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  setView(lng = -83.6597448169627, lat = 42.28, zoom = 10) %>%
+  addPolygons(data = counties_michigan,
+              weight = 1,
+              color = "#1b7837",
+              fill = TRUE,
+              fillOpacity = 0.3,
+              group = "Counties",
+              highlightOptions = highlightOptions(
+                weight = 3,
+                color = "#66c2a5",
+                fillOpacity = 0.4,
+                bringToFront = FALSE
+              ),
+              label = ~NAME,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "bold", padding = "3px 8px"),
+                textsize = "13px",
+                direction = "auto"
+              )) %>%
+  addPolygons(data = cities_michigan,
+              weight = 1,
+              color = "#225ea8",
+              fill = TRUE,
+              fillOpacity = 0.2,
+              group = "Cities",
+              highlightOptions = highlightOptions(
+                weight = 3,
+                color = "#8da0cb",
+                fillOpacity = 0.3,
+                bringToFront = FALSE
+              ),
+              label = ~NAME,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "bold", padding = "3px 8px"),
+                textsize = "13px",
+                direction = "auto"
+              )) %>%
+  addCircleMarkers(
+    data = pos_grouped_count_zip,
+    lat = ~lat,
+    lng = ~lng,
+    radius = ~sqrt(combined) * 2,  # Adjust the radius based on count
+    color = "#A54767",
+    fillColor = "#A54767",
+    fillOpacity = 0.9,
+    popup = ~paste("Zip Code:", grouped_count, "<br/>", "Count:", combined, "<br/>", "Major City:", major_city, "<br/>", "County:", county)) %>%
+  addLayersControl(
+    overlayGroups = c("Counties", "Cities"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  hideGroup(c("Cities"))
+
+saveWidget(zip_codes_map, 'zip_codes_map.html')
+webshot::webshot('zip_codes_map.html', file = 'zip_codes_map.png')
+
+```
+
+*Visitors by home county.*
+
+Although county data was not explicitly collected, we can extrapolate from zipcode data by using the zipcodeR package. This allows us to see zip code characteristics like population size, area in square miles, among other metadata.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+ps_count_zip %>%
+  group_by(county) %>%
+  summarize(number = sum(count)) %>%
+  arrange(desc(number)) %>%
+  mutate(fraction = round(number/sum(number), 2)) %>%
+  ggplot(aes(reorder(county, -number), fraction, fill = county)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 30, vjust = 0.7, hjust = 0.5)) + geom_text(aes(label = fraction), vjust = -0.1, position = position_dodge(0.9), size = 2) + theme(legend.position = "none") + labs(y = "Proportion of Visitors", x = "County", title = "Visitors by County (Post-Season)")
+
+ps_count_zip %>%
+  group_by(county) %>%
+  summarize(number = sum(count)) %>%
+  arrange(desc(number)) %>%
+  ggplot(aes(reorder(county, -number), number, fill = county)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 30, vjust = 0.7, hjust = 0.5)) + geom_text(aes(label = number), vjust = -0.1, position = position_dodge(0.9), size = 2) + theme(legend.position = "none") + labs(y = "Proportion of Visitors", x = "County", title = "Visitors by County (Post-Season)")
+```
+
+#### What ages are visitors? \
+
+*Bar graph of number of visitors by their selected age group.*
+
+Visitor ages are re-ordered in chronological form and labels are shortened to promote figure readability. A significantly high number of visitors were between the ages of 18-24. This may be due to a variety of reasons, including: (1) survey canvassers were in this approximate range, (2) younger adults have higher technological proficiency, among others.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season$What.is.your.age. <- factor(post_season$What.is.your.age., levels = c("Under 18 years", "18 to 24 years", "25 to 34 years", "35 to 44 years", "45 to 54 years", "55 to 64 years", "65 or older", "Decline to answer"))
+
+new_labels <- c("Under 18", "18-24", "25-34", "35-44", "45-54", "55-64", "65+", "Declined")
+
+post_season %>%
+  group_by(What.is.your.age.) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(x = What.is.your.age., y = count, fill = What.is.your.age.)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + geom_text(aes(label = count), vjust = 1.5, position = position_dodge(0.9), size = 2) +
+  labs(x = "Age Group", y = "Count", title = "Number of Visitors by Age") +   theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_x_discrete(labels = new_labels) + scale_fill_brewer("PuRd") + theme(legend.position = "none")
+
+post_season %>%
+  group_by(What.is.your.age.) %>%
+  summarize(count = n()) %>%
+  mutate(fraction = round(count/sum(count),2)) %>%
+  ggplot(aes(x = What.is.your.age., y = fraction, fill = What.is.your.age.)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + geom_text(aes(label = fraction), vjust = 1.5, position = position_dodge(0.9), size = 2) +
+  labs(x = "Age Group", y = "Proportion", title = "Proportion of Visitors by Age") +   theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_x_discrete(labels = new_labels) + scale_fill_brewer("PuRd") + theme(legend.position = "none")
+```
+
+#### Visitor gender demographics \
+
+*Bar graph of number of visitors by their self-identified gender.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season %>%
+  group_by(With.what.gender.do.you.most.identify.) %>%
+  summarise(count = n()) %>%
+  filter(With.what.gender.do.you.most.identify. != "Response") %>%
+  ggplot(aes(With.what.gender.do.you.most.identify., y = count, fill = With.what.gender.do.you.most.identify.)) + geom_bar(stat = "identity") + 
+  labs(x = "Gender", y = "Count", title = "Number of Visitors by Gender Identity") + theme(axis.text.x = element_text(angle = 26, hjust = 1)) +  scale_fill_brewer("PuRd") + theme(legend.position = "none") + geom_text(aes(label = count), vjust = -0.1, position = position_dodge(0.9), size = 2)
+
+post_season %>%
+  group_by(With.what.gender.do.you.most.identify.) %>%
+  summarise(count = n()) %>%
+  mutate(fraction = round(count/sum(count),2)) %>%
+  filter(With.what.gender.do.you.most.identify. != "Response") %>%
+  ggplot(aes(With.what.gender.do.you.most.identify., y = fraction, fill = With.what.gender.do.you.most.identify.)) + geom_bar(stat = "identity") + 
+  labs(x = "Gender", y = "Proportion", title = "Proportion of Visitors by Gender Identity") + theme(axis.text.x = element_text(angle = 26, hjust = 1)) +  scale_fill_brewer("PuRd") + theme(legend.position = "none") + geom_text(aes(label = fraction), vjust = -0.1, position = position_dodge(0.9), size = 2)
+```
+
+#### Race & Ethnic demographics \
+
+*Ethnic demographics data was collected via a "Select all that apply" question, so multiple unique combinations of background were identified.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season %>%
+  group_by(Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  mutate(fraction = round(count/sum(count)*100,1)) %>%
+  filter(Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option... != "Response") %>%
+  kable(col.names = c("Race/Ethnicity", "Number of Respondents", "Percent (%)"))
+```
+*Create a new table that separates the Census "Ethnicity" question from race.*
+
+This means that if people chose "Hispanic, Latino or Spanish origin" then this means they would have indicated they are of this on an ethnicity question. Otherwise, they will be sorted into a "Not Hispanic, Latino or Spanish origin" category.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+ethnicity <- post_season %>%
+  rename(race_ethnicity = Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...) %>%
+  mutate(ethnicity = case_when(
+    grepl("Hispanic, Latino or Spanish origin", race_ethnicity) ~ "Hispanic, Latino or Spanish origin",
+    TRUE ~ "NOT Hispanic, Latino or Spanish origin"
+  )) %>%
+  select(Respondent.ID,race_ethnicity,ethnicity) %>%
+  group_by(ethnicity) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = round(count/sum(count)*100, 2)) 
+
+ethnicity %>%
+  kable(col.names = c("Ethnicity", "Count", "Percent (%)"))
+```
+*Does ethnicity in the survey align with Washtenaw County demographics?*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+observed_count <- 11
+total_count <- 11 + 176
+observed_proportion <- observed_count / total_count
+expected_proportion <- 0.0526
+
+test_result <- prop.test(x = observed_count, n = total_count, p = expected_proportion, alternative = "two.sided")
+
+print(test_result)
+```
+
+  \
+The test suggests that the proportion of respondents identifying as Hispanic, Latino or Spanish origin aligns with Washtenaw County demographics.
+
+  \
+*Create a new table that collapses multiple race and ethnicity selections into a single "Mixed heritage" category.*
+
+Rationale: "Mixed Heritage" could be used to describe any combination of one or more racial/ethnic backgrounds, but those who also selected the combination of their backgrounds leads to many distinct demographic categorizations. A hierarchical approach that both factors a general category, as well as more common combinations, helps make the number of groups more meaningful.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season %>%
+  group_by(Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  filter(Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option... != "Response") %>%
+  mutate(Collapsed = case_when(
+    grepl("Mixed heritage", Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...) ~ "Mixed heritage",
+    grepl("n,", Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...) ~ "Mixed heritage",
+    grepl(", W", Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...) ~ "Mixed heritage",
+    grepl("e,", Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...) ~ "Mixed heritage",
+    TRUE ~ Which.of.the.following.describes.your.race.and.or.ethnicity..Note..we.recognize.the.following.list.is.not.all.encompassing.for.how.people.may.identify..Please.select.all.that.apply..and.in.addition..you.may.further.self.describe.race.and.or.ethnicity.using.the..Other..option...
+  )) %>%
+  group_by(Collapsed) %>%
+  mutate(collapse_count = n()) %>%
+  ungroup() %>%
+  group_by(Collapsed, collapse_count) %>%
+  summarise(count = if_else(collapse_count == 1, sum(count), sum(count))) %>%
+  ungroup() %>%
+  arrange(desc(count)) %>%
+  distinct(Collapsed, count) %>%
+  kable(col.names = c("Race/Ethnicity", "Count"))
+
+```
+*Does race/ethnicity breakdown align with Washtenaw County expected demographics?*
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+observed <- c(
+  "Black or African American" = 5,
+  "American Indian or Alaska Native" = 0,
+  Asian = 13,
+  "Hispanic, Latino or Spanish origin" = 8,
+  White = 143,
+  "Mixed heritage" = 9,
+  "Native Hawaiian or Other Pacific Islander" = 0,
+  "Other ____________________" = 2,
+  "Decline to answer" = 6
+)
+
+
+expected_proportions <- c(
+  "Black or African American" = 10.87 / 100,
+  "American Indian or Alaska Native" = 0.30 / 100,
+  Asian = 8.54 / 100,
+  "Hispanic, Latino or Spanish origin" = 5.26 / 100,
+  White = 65.42 / 100,
+  "Mixed heritage" = 7.44 / 100,
+  "Native Hawaiian or Other Pacific Islander" = 0.05 / 100,
+  "Other ____________________" = 1.88 / 100,
+  "Decline to answer" = 0.24 / 100
+)
+
+total_observed <- sum(observed)
+expected_counts <- expected_proportions * total_observed
+
+chisq_test <- chisq.test(observed, p = expected_proportions)
+
+print(chisq_test)
+```
+
+  \
+The results of the chi-squared test suggest the demographic breakdown of respondents is significantly different than expected for Washtenaw County. This could be due to a variety of reasons, including:
+
+- Sampling Bias: The individuals who have access to and are inclined to use email and social media may not be representative of the entire population of Washtenaw county.
+- Nonresponse Bias: Some individuals may be less likely to respond to online surveys for a variety of reasons including cultural differences in engagement with surveys, lack of trust in sharing information online, or language barriers.
+- Reach: If the social media networks and email lists that the survey were sent on are biased towards certain demographics, this will be reflected in the survey responses.
+- Self-Selection: Individuals who choose to complete online surveys might differ from those who do not in systematic ways. For instance, those with a higher interest in the survey topic or higher internet literacy rates might be overrepresented in online survey responses.
+- Internet Access: Variations in internet access across different areas and demographic groups within the county can influence who is able to participate in the survey.
+
+
+#### Visitor programming satisfaction \
+
+*Break out favorite offerings tonight by day.*
+
+Programming questions were asked slightly differently between the in-season and post-season survey versions, as in-season questionnaires were administered in-time with programming. 
+
+*Post-season visitors who listed "Special Outdoor Attractions" as one of their favorite offerings, by day survey completed.*
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_summary <- post_season %>%
+  mutate(date_only = as.Date(Start.Date, format="%m/%d/%y %H:%M"))
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+cleaned_data <- post_season_summary %>%
+  mutate(What.were.your.favorite.offerings.this.season...Choose.up.to.three. = replace_na(What.were.your.favorite.offerings.this.season...Choose.up.to.three., ""))
+
+music_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Music at"))
+movies_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Movies by"))
+special_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Special Outdoor"))
+retreat_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Retreat"))
+food_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Food S"))
+grove_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "The Grove"))
+kids_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Kids'"))
+teen_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Teen and"))
+party_count <- sum(str_count(cleaned_data$What.were.your.favorite.offerings.this.season...Choose.up.to.three., "I was invited"))
+
+# Combine the counts into a data frame
+favorite_counts <- data.frame(
+  category = c(
+  total_music = "Music",
+  total_movie = "Movies by Moonlight",
+  total_special = "Outdoor Attractions",
+  total_retreats = "Retreat Classes",
+  total_food = "Food Selections",
+  total_bev = "Beverage Garden",
+  total_kids = "Kids' Activities",
+  total_teen = "Teen/Adult Activities",
+  total_party = "Party Tent Event"
+),
+  count = c(music_count, movies_count, special_count, retreat_count, food_count, grove_count, kids_count, teen_count, party_count)
+)
+
+ggplot(favorite_counts, aes(x = reorder(category, -count), y = count, fill = category)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Favorite Offerings This Season",
+       x = "Type",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + theme(legend.position = "none")
+```
+
+*Other respondent-identified "favorite offerings" during the in-season survey collection period.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+other_offering <- post_season %>%
+  select(What.is.your.age.,...20) %>%
+  filter(!is.na(...20)) %>%
+  kable(col.names = c("Age", "Other Favorite Offerings"))
+
+other_offering
+```
+
+#### Family Demographics \
+
+*To filter, we choose the optional string column "On a scale of 1-10, how satisfied are you with family offerings (KidZone, Kids Rock) at Top of the Park?" to determine whether respondents represent a family.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season %>%
+  filter(str_detect(What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Kids' Activities") |
+           !is.na(On.a.scale.of.1.10..how.satisfied.are.you.with.the.Top.of.the.Park.music.programming.)) %>%
+  group_by(What.is.your.age.) %>%
+  summarise(count = n()) %>%
+  mutate(proportion = round(count/sum(count)*100,2)) %>%
+  kable(col.names = c("Age Group", "Count", "Percentage (%)"))
+```
+
+*Most people seemed to have answered the optional "On a scale of 1-10, how satisfied are you with family offerings (KidZone, Kids Rock) at Top of the Park?", so it may also be relevant to highlight the people who mentioned Kids' Activities as one of their top 3 offerings.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season %>%
+  filter(str_detect(What.were.your.favorite.offerings.this.season...Choose.up.to.three., "Kids' Activities")) %>%
+  select(On.a.scale.of.1.10..how.satisfied.are.you.with.family.offerings..KidZone..Kids.Rock..at.Top.of.the.Park., Is.there.anything.else.you.would.like.to.share.about.Top.of.the.Park.or.A2SF.as.an.organization., What.would.make.it.easier.for.you.to.participate.in.A2SF.events.,How.did.you.hear.about.A2SF.at.Top.of.the.Park.) %>%
+  kable(col.names = c("Satisfaction", "Anything else to share?", "Making it easier to participate", "How did you hear?")) %>%
+  column_spec(1, width = "1.5cm") %>%
+  column_spec(2, width = "4cm") %>%
+  column_spec(3, width = "5cm") %>%
+  column_spec(4, width = "5cm")
+```

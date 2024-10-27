@@ -1,0 +1,856 @@
+---
+title: ""
+output:
+  html_document:
+    css: styles.css
+    toc: true
+    toc_depth: 6
+    toc_float: true
+  pdf_document: default
+---
+
+# **Ann Arbor Summer Festival Visitor Survey Final Report**
+
+##### By Vicky Wang (viwa@umich.edu)
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results="hide"}
+library(knitr)
+library(kableExtra)
+library(BSDA)
+library(tidyr)
+library(reshape2)
+library(dplyr)
+library(webshot)
+library(viridis)
+library(purrr)
+library(zipcodeR)
+library(usdata)
+library(ggplot2)
+library(leaflet)
+library(mapview)
+library(htmlwidgets)
+library(sf)
+library(tidygeocoder)
+library(lubridate)
+library(tigris)
+library(leaflet.extras)
+library(htmlwidgets)
+library(countries)
+library(cities)
+library(stringr)
+library(rcompanion)
+options(tigris_use_cache = TRUE, tigris_progress = FALSE)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+in_season <- readxl::read_xlsx("In Season A2SF Survey data.xlsx")
+post_season <- read.csv("post_season-processed.csv")
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+in_season <- in_season %>%
+  filter(!is.na(`Respondent ID`)) %>%
+  select(
+    -c(Type, Referrer, Platform, Agent, ...51, ...52,...23,...25,...27,...29,...31,...33),
+    -starts_with("Tag Name"),
+    -starts_with("Tag Value"),
+    -starts_with("IP")
+  )
+
+post_season <- post_season %>%
+  filter(!is.na(Respondent.ID)) %>%
+  select(-c(X, Type, Referrer, Platform, Agent,...47,...48,...23,...25,...27,...29,...31,...33),
+    -starts_with("Tag.Name"),
+    -starts_with("Tag.Value"),
+    -starts_with("IP"))
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season$What.is.your.zip.code. <- as.character(post_season$What.is.your.zip.code.)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+
+in_season <- in_season %>%
+  mutate(source = "In Season")
+
+in_season <- in_season %>%
+  rename(other.gender = ...11,
+         other.race = ...14,
+         other.attendance.factors = ...18,
+         other.fav.offerings = ...20,
+         )
+  
+post_season <- post_season %>%
+  mutate(source = "Post Season")
+
+post_season <- post_season %>%
+  rename(other.gender = ...11,
+         other.race = ...14,
+         other.attendance.factors = ...18,
+         other.fav.offerings = ...20,
+         )
+# clean_all <- bind_rows(in_season_data, post_season_data)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+make_proper <- function(name) {
+  name %>%
+    str_replace_all("\\.", " ") %>%
+    str_replace_all(" {2,}", " ") %>%
+    str_replace_all("[[:punct:]]", "") %>%
+    str_trim()
+}
+
+names(in_season) <- sapply(names(in_season), make_proper)
+
+names(post_season) <- sapply(names(post_season), make_proper)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+in_season <- in_season %>%
+  rename(race_ethnicity = `Which of the following describes your race andor ethnicity Note we recognize the following list is not allencompassing for how people may identify Please select all that apply and in addition you may further selfdescribe race andor ethnicity using the Other option`,
+         donation = `A2SF is an independent communitysupported 501c3 nonprofit organization with individual donors contributing $340000 or 20 of our yearly budget How likely are you to donate to our organization`,
+         future_attend = `On a scale of 110 how likely are you to attend one of our events in the future`,
+         recommend_family = `On a scale of 110 how likely are you to recommend our events to a friend or family member`,
+         music_satisfaction = `On a scale of 110 how satisfied are you with the Top of the Park music programming`,
+         kids_satisfaction = `On a scale of 110 how satisfied are you with family offerings KidZone Kids Rock at Top of the Park`,
+         overall_trajectory = `On a scale of 110 how do you feel about the overall trajectory that A2SF is heading in`,
+         gift_email = `If you would like to be entered to win a $50 gift card please provide your email address`)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season <- post_season %>%
+  rename(race_ethnicity = `Which of the following describes your race and or ethnicity Note we recognize the following list is not all encompassing for how people may identify Please select all that apply and in addition you may further self describe race and or ethnicity using the Other option`,
+         donation = `A2SF is an independent community supported 501 c 3 nonprofit organization with individual donors contributing 340 000 or 20 of our yearly budget How likely are you to donate to our organization`,
+         future_attend = `On a scale of 1 10 how likely are you to attend one of our events in the future`,
+         recommend_family = `On a scale of 1 10 how likely are you to recommend our events to a friend or family member`,
+         music_satisfaction = `On a scale of 1 10 how satisfied are you with the Top of the Park music programming`,
+         kids_satisfaction = `On a scale of 1 10 how satisfied are you with family offerings KidZone Kids Rock at Top of the Park`,
+         overall_trajectory = `On a scale of 1 10 how do you feel about the overall trajectory that A2SF is heading in`,
+         gift_email = `If you would like to be entered to win a 50 gift card please provide your email address`) %>%
+  mutate(future_attend = as.character(future_attend)) %>%
+  mutate(donation = as.character(donation)) %>%
+  mutate(recommend_family = as.character(recommend_family)) %>%
+  mutate(music_satisfaction = as.character(music_satisfaction)) %>%
+  mutate(kids_satisfaction = as.character(kids_satisfaction)) %>%
+  mutate(overall_trajectory = as.character(overall_trajectory))
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all <- bind_rows(in_season, post_season)
+clean_all <- clean_all %>%
+  select(`Respondent ID`,
+         source,
+         everything())
+```
+
+### Project Overview
+
+Ann Arbor Summer Festival at Top of the Park is a free, yearly event held in Ann Arbor, Michigan over the
+course of two weeks in mid June. Ann Arbor Summer Festival also puts on ticketed events in venues such
+as Hill Auditorium for artists to perform. This year, a visitor survey was administered to visitors to A2SF
+events, either through in-person or email/online methods. The following questions were asked in the survey.
+
+1. What is your zip code?
+2. What is your age?
+3. With what gender do you most identify?
+4. What is your education level?
+5. Which of the following describes your race and/or ethnicity (Note: we recognize the following list is
+not all-encompassing for how people may identify. Please select all that apply, and in addition, you
+may further self-describe race and/or ethnicity using the ‘Other’ option.)?
+6. What was your gross household income during the last year?
+7. How many times did you attend Top of the Park this season?
+8. What were the biggest factors that influenced your decision whether or not to attend? Select all that
+apply.
+9. What were your favorite offerings this season? (Choose up to three)
+10. On average, how much money did you spend at Top of the Park this season (drinks, food, merchandise,
+etc.)?
+11. A2SF is an independent, community-supported 501(c)3 nonprofit organization, with individual donors
+contributing $340,000 or 20% of our yearly budget. How likely are you to donate to our organization?
+12. On a scale of 1-10, how likely are you to attend one of our events in the future?
+13. On a scale of 1-10, how likely are you to recommend our events to a friend or family member?
+14. On a scale of 1-10, how satisfied are you with the Top of the Park music programming?
+15. On a scale of 1-10, how satisfied are you with family offerings (KidZone, Kids Rock) at Top of the Park?
+16. On a scale of 1-10, how do you feel about the overall trajectory that A2SF is heading in?
+17. Is there anything else you would like to share about Top of the Park or A2SF as an organization?
+18. What would make it easier for you to participate in A2SF events?
+19. How did you hear about A2SF at Top of the Park?
+20. If you would like to be entered to win a $50 gift card, please provide your email address.
+21. If you provided your email, do you want to be added to our mailing list?
+
+**Survey Data Cleaning**
+
+A problem that arose during the analysis for post-season data was the presence of bots. Despite inclusion
+of reCAPTCHA tests in the CrowdSignal survey platform, approx. 150 responses on the post-season survey
+indicated bot responses. Even after cleaning, there is not a 100% guarantee the remaining responses are
+human, as we cannot depend solely on short response langauge to assess whether a respondent is a bot or
+not.
+To address these bots during cleaning, we use a combination of methods, per this website. The methods we
+used were:
+
+1. Removing respondents from the same IP Address
+2. Removing unusually short response duration entries
+3. Reviewing open-ended questions
+
+However, this does not fully remove responses, so other less proven filters were also applied. For example, if
+country was not the United States, then the respondents should not have included a zip code.
+
+In the future, there are several methods to prevent this from occurring. Some have already been implemented,
+but there is merit to adding additional safeguards.
+Existing methods (KEEP THESE!):
+* reCAPTCHA inclusion
+* collect IP Address
+* collect Start/End time/dates
+* include mandatory open-ended questions
+
+To include in the future:
+
+* “Honeypot Questions” include a single test question that consists of white text on a white background.
+Humans should skip this, but bots will fill it out.
+* Image question. Bots cannot typically read images, so taking a screenshot of a text question and
+uploading that image makes it more challenging to respond.
+* Enable more CrowdSignal restrictions:
+1. One response per computer
+2. IP restriction
+3. Email restriction
+
+**Understanding Respondent Demographics**
+
+The results demonstrate that while ethnicity aligns with the expected Washtenaw County results, race and
+ethnicity clearly demonstrates that respondent demographics were not in line. Using the following strategies
+outlined may help standardize the results and determine whether this is an accurate reflection of the visitor
+demographic of A2SF events, or if this was due to surveyor error.
+Data Collection
+
+Post-season and in-season analysis yields some different visitor demographic results. For example,
+in-person respondents skewed significantly younger, while post-season respondents were much older overall. This was in part due to the surveyors were closer in age to the 18-24 category, so they may have felt more comfortable talking to similar-aged individuals. Additionally, the race and ethnicity demographics did not closely align with Washtenaw County expectations, either indicating sampling was non-representative or the population A2SF serves does not align with County demographics. 
+Possible ways to address this:
+* recruit volunteers of many ages/backgrounds to walk around the festival and talk to patrons.
+* train volunteers to speak with everyone.
+* stratify sampling. for example, have surveyors walk around, and speak with every 5th person they go
+past.
+* Set a target population in advance to the survey collection period. For Washtenaw County, the collected
+demographics are as follows:
+
+* Age:
+1. 0-19: 26.0%
+2. 20-34: 26.1%
+3. 35-49: 19.4%
+4. 50-64: 18.2%
+5. 65+: 20.5%
+
+* Median Income: $79,665
+* Families - $112,532
+* Married-couple families - $131,226
+* Nonfamily households - $44,446
+* Educational Attainment:
+1. High school - 14.3%
+2. Some college, no degree - 16.6%
+3. Associate - 6.7%
+4. Bachelor’s - 27.0%
+5. Graduate/professional degree - 30.9%
+* Race/Ethnicity:
+1. American Indian and Alaska Native alone: 0.30%
+2. Asian alone: 8.54%
+3. Black or African American alone: 10.87%
+4. Hispanic or Latino (of any race): 5.26%
+5. Native Hawaiian and Other Pacific Islander alone: 0.05%
+6. White alone: 65.42%
+7. Some Other Race alone: 1.88%
+8. Two or More Races: 7.44%
+
+**Important Takeaways**
+
+Race/Ethnicity: There is no statistical difference in the race demographic breakdown between in-person
+and online-collected survey responses, but there is a difference between both individual survey source datasets
+and the current Washtenaw County percentages.
+While the survey results appear to accurately reflect the racial/ethnic demographics of the audience A2SF
+currently serves, they do not fully align with the broader demographics of Washtenaw County (American
+Community Survey 2020). If A2SF aims to engage the entire county, it may be beneficial to examine
+these differences more closely and consider targeted outreach strategies to better reach and include those
+demographic groups that are currently underrepresented. \
+
+Visitor Hometowns: A2SF aims are to service Washtenaw County, and this is well-supported by the
+significant majority of visitors coming from Washtenaw County zip codes. \
+
+Age: Older populations more frequently responded online, while younger populations were over-sampled
+in-person, likely because canvassers shared that characteristic.
+
+**References**
+
+• 2021 American Community Survey \
+• Standards for Maintaining, Collecting, and Presenting Federal Data on Race and Ethnicity
+
+
+### Summary of Cleaning Process
+
+Post-Season survey data was collected via email, social media, and other online methods. As a result, despite reCAPTCHA inclusion, there are high numbers of bot responses within the data set. Initial survey analysis requires cleaning and removing these responses from the dataset.
+
+A separate .csv file on CrowdSignal collected participant data for the post-season survey. This will be cross-joined with the post-season survey data set on primary key "Respondent.ID" to determine the IP Addresses for all respondents. Then, evidence-based IP analysis can determine bot presence.
+
+Grouped by IP.Address in order to count multiple responses for same IP addresses. Because count higher than 1 indicate more than one response, we want to filter.
+
+We also want to filter on all other selections to double check we aren't losing responses. One address was identified with two responses, but one missed the email address while the other contained one. We write the likely_bots to a new file, "duplicate_ip_address.csv" which is provided in the code file.
+
+Following IP verification, we can look further into specific responses that may have evaded this method. Another strong indicator of bots are unusually short response durations. Because Time.Taken is a parameter within the post-season-respondents (participants) survey, we can use these numbers to determine unusually short responses.
+
+Because only some responses were unusually long, there is no evidence for bots present based on extremely short response times only. However, after writing post_season_ip to a new file, "post_season_cleaned_ip_addresses.csv" there are clearly still bots within the data.
+
+Removed non-US auto-collected countries and manual zip code entries that are not 5 characters. Since auto-collected countries outside of the United States are unlikely given the scope and target audience of the survey. Additional manual review of row responses for non-US locations indicated bot behavior such as nonsensical free response answers. 
+
+Non-US countries should not have filled out the zip code question. The "Anything to share" column is used as an additional verification of bot-indicating behavior. As a result of this, we can filter these rows out of the dataset further. 
+
+Additionally, zip codes should be 5 characters in length. When we see typos like "4103" instead of "48103", it is possible this is a typo, but we should not assume this to be a zip code in 48103. Further filtering requires the removal of these responses.
+
+Because some United States-based responses may also be bots, we have to be creative to identify additional ones. To do this, I use a function to identify states and zip codes and determine whether the zip codes, which respondents manually inputted, match with the states/countries, which was automatically collected from respondents' device locations.
+
+Following identification of "Match" or "Not Match", we filter the full dataset so it only contains "Match" results. Then, we will write to csv a fully cleaned file that can be used in further post-season analysis and data visualization methods.
+
+Final cleaned result may still some suspicious responses because the short answer does not align well with the question asked, but these are few in number.*
+
+Notably suspect: **304885124, 304722909, 304882174, 304751759**. However, these managed to pass ALL of the following:
+
+* Non-duplicate IP Address sources
+* Normal response duration
+* United States
+* Zip code length is 5 characters
+* State (auto-collected) and Zip code (manual-collected) match
+
+As a result, we will leave these responses in the dataset, but should exercise caution when performing analysis. 
+
+The final output of this cleaned file is named "post_season-processed.csv."
+
+### **Data Visualization**
+
+#### Where are A2SF Visitors From?
+
+*Summary of all represented zip codes of A2SF visitors.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all <- clean_all %>%
+  filter(nchar(`What is your zip code`) == 5)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+all_zip_group_counts <- clean_all %>%
+  select(`Respondent ID`,source,`What is your zip code`,State) %>%
+  left_join(zip_code_db, by = c("What is your zip code" = "zipcode")) %>%
+  mutate(state_abbr = state2abbr(State)) %>%
+  select(source, `What is your zip code`, state_abbr, state) %>%
+  filter(state_abbr == state) %>%
+  group_by(`What is your zip code`) %>%
+  summarise(count = n()) %>%
+  mutate(grouped_zip = case_when(
+    count == 1 ~ "Other",
+    TRUE ~ `What is your zip code`
+  ))
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+combined_zip_count_all <- all_zip_group_counts %>%
+  group_by(grouped_zip, count) %>%
+  summarise(count2 = n()) %>%
+  ungroup() %>%
+  mutate(combined = count*count2) %>%
+  select(grouped_zip, combined)
+
+adding_fractions <- combined_zip_count_all %>%
+  mutate(
+    fraction = combined / sum(combined),
+    ymax = cumsum(fraction),
+    ymin = c(0, head(ymax, n = -1)),
+    labelPosition = (ymax + ymin) / 2
+    )
+
+ggplot(adding_fractions, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = grouped_zip)) +
+  geom_rect(color="black") +
+  geom_text(x = 4.2, aes(y = labelPosition, label = grouped_zip), size = 2) + # Position labels outside
+  geom_segment(aes(x = 4, xend = 4, y = labelPosition, yend = labelPosition), color = "black") + # Add line from pie to label
+  coord_polar(theta = "y") +
+  ggtitle("Visitors by Zip Code") +
+  scale_fill_brewer(palette = "Set3") +
+  theme_void() +
+  theme(legend.position = "none")
+```
+
+*All visitors by county. Numbers above bars represent the proportion of visitors from represented counties.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+all_zipcodeR <- reverse_zipcode(combined_zip_count_all$grouped_zip)
+
+
+combined_zip_count_all %>%
+  left_join(all_zipcodeR, by = c("grouped_zip" = "zipcode")) %>%
+  group_by(county) %>%
+  summarize(count = sum(combined)) %>%
+  filter(!is.na(county)) %>%
+  mutate(frac = round(count/sum(count),2)) %>%
+  ggplot(aes(reorder(county, -count), frac, fill = county)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 30, vjust = 0.7, hjust = 0.5)) + geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2) + theme(legend.position = "none") + labs(y = "Proportion of Visitors", x = "County", title = "Visitors by County - All")
+```
+
+*In-season Visitors*
+
+Rationale: non-5 digit zip codes were omitted, as it is difficult to determine the typing error committed to lead to an abnormal zip code. Additionally, collapsed all zip codes collected with count == 1 into an "Other" category in order to better visualize most common visitor homes.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+is_count_zip_ungroup <- in_season %>%
+  group_by(`What is your zip code`) %>%
+  summarise(count = n()) %>%
+  filter(nchar(`What is your zip code`) == 5) 
+
+is_count_zip <- is_count_zip_ungroup %>%
+  mutate(zip_group = case_when(
+    count == 1 ~ "Other",
+    TRUE ~ `What is your zip code`
+  ))
+
+is_count_zip <- is_count_zip %>%
+  group_by(zip_group, count) %>%
+  summarise(count2 = n()) %>%
+  ungroup() %>%
+  mutate(combined = count*count2) %>%
+  select(zip_group, combined)
+
+is_count_zip <- is_count_zip %>%
+  mutate(
+    fraction = combined / sum(combined),
+    ymax = cumsum(fraction),
+    ymin = c(0, head(ymax, n = -1)),
+    labelPosition = (ymax + ymin) / 2
+    )
+
+# Plot
+ggplot(is_count_zip, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = zip_group)) +
+  geom_rect(color="black") +
+  geom_text(x = 4.2, aes(y = labelPosition, label = zip_group), size = 2) + # Position labels outside
+  geom_segment(aes(x = 4, xend = 4, y = labelPosition, yend = labelPosition), color = "black") + # Add line from pie to label
+  coord_polar(theta = "y") +
+  ggtitle("Visitors by Zip Code") +
+  scale_fill_brewer(palette = "PuRd") +
+  theme_void() +
+  theme(legend.position = "none")
+```
+
+*Post-season Visitors*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+zip_ps <- post_season %>%
+  group_by(`What is your zip code`) %>%
+  summarise(count = n()) %>%
+  mutate(grouped_count = case_when(
+    count == 1 ~ "Other",
+    TRUE ~ as.character(`What is your zip code`)
+  ))
+
+zip_ps <- zip_ps %>%
+  group_by(grouped_count, count) %>%
+  summarise(count2 = n()) %>%
+  ungroup() %>%
+  mutate(combined = count*count2) %>%
+  select(grouped_count, combined)
+
+zip_ps <- zip_ps %>%
+  mutate(
+    fraction = combined / sum(combined),
+    ymax = cumsum(fraction),
+    ymin = c(0, head(ymax, n = -1)),
+    labelPosition = (ymax + ymin) / 2
+    ) %>%
+  mutate(label = paste0(grouped_count, " (", scales::percent(fraction), ")"))
+
+ggplot(zip_ps, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = as.factor(grouped_count))) +
+  geom_rect(color = "black") +
+  geom_text(x = 4.2, aes(y = labelPosition, label = label), size = 3) +
+  coord_polar(theta = "y") +
+  ggtitle("Visitors by Zip Code") +
+  scale_fill_brewer(palette = "RuPd") +
+  theme_void() +
+  theme(legend.position = "none")
+```
+
+#### Age Analysis
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+desired_order <- c("Under 18 years", "18 to 24 years", "25 to 34 years", 
+                   "35 to 44 years", "45 to 54 years", "55 to 64 years", 
+                   "65 or older", "Decline to answer")
+clean_all$`What is your age` <- factor(clean_all$`What is your age`, levels = desired_order, ordered = TRUE)
+
+clean_all %>%
+  filter(`What is your age` != "Decline to answer") %>%
+  group_by(source, `What is your age`) %>%
+  summarise(count = n()) %>%
+  mutate(frac = round(count/sum(count),2)) %>%
+  ggplot(aes(x = `What is your age`, y = count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Age Group", y = "Count", title = "Respondents by Age and Survey Type") + geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2)
+```
+
+Older age groups answer in higher proportions during the post-season, while younger groups were over-sampled in the in-season group. Pearson's Chi-squared test indicates that there is a difference in respondents by age group between the two survey sources.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+contingency_table <- table(clean_all$source, clean_all$`What is your age`)
+
+chi_sq_result <- chisq.test(contingency_table)
+
+print(chi_sq_result)
+```
+
+
+
+#### Gender Analysis
+
+*Visitors by their self-identified gender.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  group_by(source, `With what gender do you most identify`) %>%
+  summarise(count = n()) %>%
+  filter(`With what gender do you most identify` != "Prefer to self-describe, below") %>%
+  mutate(frac = round(count/sum(count),2)) %>%
+  ggplot(aes(x = reorder(`With what gender do you most identify`,-count), y = count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Gender Identity", y = "Count", title = "Grouped Respondents by Self-Identified Gender and Survey Type") + geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2)
+```
+
+*Other self-described gender identities.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  group_by(source, `other gender`) %>%
+  summarize(count = n()) %>%
+  filter(!is.na(`other gender`)) %>%
+  kable(col.names = c("Survey", "Other Identity", "Count"))
+```
+
+
+#### Race/Ethnicity Analysis
+
+*All unique race/ethnicity identities*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  distinct(race_ethnicity) %>%
+  filter(!is.na(race_ethnicity)) %>%
+  arrange(race_ethnicity) %>%
+  kable(col.names = "Race/Ethnicity")
+```
+
+*Ethnicity question- Hispanic,Latino, Spanish or Not?*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+ethnicity <- clean_all %>%
+  mutate(ethnicity = case_when(
+    grepl("Hispanic, Latino or Spanish origin", race_ethnicity) ~ "Hispanic, Latino or Spanish origin",
+    TRUE ~ "NOT Hispanic, Latino or Spanish origin"
+  )) %>%
+  select(`Respondent ID`,race_ethnicity,ethnicity) %>%
+  group_by(ethnicity) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = round(count/sum(count)*100, 2)) 
+
+ethnicity %>%
+  kable(col.names = c("Ethnicity", "Count", "Percent (%)"))
+```
+
+*Ethnicity does not align with Washtenaw County (p < 0.10).*
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+observed_count <- 11
+total_count <- 11 + 176
+observed_proportion <- observed_count / total_count
+expected_proportion <- 0.0526
+
+test_result <- prop.test(x = observed_count, n = total_count, p = expected_proportion, alternative = "two.sided")
+
+print(test_result)
+```
+
+*Race with mixed heritages collapsed into a single general category.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  mutate(Collapsed = case_when(
+    grepl("Hispanic, Latino or Spanish origin", race_ethnicity) & grepl(", ", race_ethnicity) ~ "Mixed heritage",
+    grepl(", ", race_ethnicity) ~ "Mixed heritage",
+    TRUE ~ race_ethnicity
+  )) %>%
+  group_by(source, Collapsed) %>%
+  summarise(collapse_count = n()) %>%
+  filter(!is.na(Collapsed)) %>%
+  mutate(frac = round(collapse_count/sum(collapse_count),2)) %>%
+  ggplot(aes(x = reorder(Collapsed,-collapse_count), y = collapse_count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Race/Ethnicity", y = "Count", title = " Respondents by Race/Ethnicity and Survey Type") + geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2)
+
+clean_all %>%
+  mutate(Collapsed = case_when(
+    grepl("Hispanic, Latino or Spanish origin", race_ethnicity) & grepl(", ", race_ethnicity) ~ "Mixed heritage",
+    grepl(", ", race_ethnicity) ~ "Mixed heritage",
+    TRUE ~ race_ethnicity
+  )) %>%
+  group_by(Collapsed) %>%
+  summarise(collapse_count = n()) %>%
+  filter(!is.na(Collapsed)) %>%
+  mutate(frac = round(collapse_count/sum(collapse_count)*100,2)) %>%
+  arrange(desc(collapse_count)) %>%
+  kable(col.names = c("Race", "Frequency", "Percent (%)"))
+  
+```
+
+*Race/ethnicity does not vary by source.*
+
+This could indicate that the sampling method was unbiased and the population of patrons is relatively accurately represented.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+contingency_table <- table(clean_all$source, clean_all$race_ethnicity)
+
+chi_sq_result <- chisq.test(contingency_table)
+
+print(chi_sq_result)
+```
+*Race/Ethnicity representation does not align with Washtenaw County demographics (p < 0.0001).*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+observed <- c(
+  "Black or African American" = 5,
+  "American Indian or Alaska Native" = 0,
+  Asian = 13,
+  "Hispanic, Latino or Spanish origin" = 8,
+  White = 143,
+  "Mixed heritage" = 9,
+  "Native Hawaiian or Other Pacific Islander" = 0,
+  "Other ____________________" = 2,
+  "Decline to answer" = 6
+)
+
+
+expected_proportions <- c(
+  "Black or African American" = 10.87 / 100,
+  "American Indian or Alaska Native" = 0.30 / 100,
+  Asian = 8.54 / 100,
+  "Hispanic, Latino or Spanish origin" = 5.26 / 100,
+  White = 65.42 / 100,
+  "Mixed heritage" = 7.44 / 100,
+  "Native Hawaiian or Other Pacific Islander" = 0.05 / 100,
+  "Other ____________________" = 1.88 / 100,
+  "Decline to answer" = 0.24 / 100
+)
+
+total_observed <- sum(observed)
+expected_counts <- expected_proportions * total_observed
+
+chisq_test <- chisq.test(observed, p = expected_proportions)
+
+print(chisq_test)
+```
+
+*Other race/ethnicity identities, as self-described by respondents.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  group_by(source, `other race`) %>%
+  summarize(count = n()) %>%
+  filter(!is.na(`other race`)) %>%
+  kable(col.names = c("Survey", "Other Identities", "Count"))
+```
+#### Educational Level
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+
+# Change the specific element
+clean_all$`What is your education level`[clean_all$`What is your education level` == "High school graduate, diploma, or the equivalent (GED)"] <- "High School degree or GED"
+
+clean_all %>%
+  group_by(`What is your education level`) %>%
+  summarise(count = n()) %>%
+  filter(`What is your education level` != "Decline to answer") %>%
+  ggplot(aes(x = reorder(`What is your education level`, -count), y = count, fill = `What is your education level`)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Education", y = "Count", title = " Respondents by Educational Level") + geom_text(aes(label = count), vjust = -0.1, position = position_dodge(0.9), size = 2)
+```
+
+#### Gross Household Income
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+ordered_income <- c("Less than $25,000",
+                    "$25,000 to $34,999",
+                    "$35,000 to $49,999",
+                    "$50,000 to $74,999",
+                    "$75,000 to $99,999",
+                    "$100,000 to $149,999",
+                    "$150,000 or more",
+                    "Decline to answer")
+
+clean_all$`What was your gross household income during the last year` <- factor(clean_all$`What was your gross household income during the last year`,
+  levels = ordered_income
+)
+
+clean_all %>%
+  filter(!is.na(`Respondent ID`)) %>%
+  group_by(`What was your gross household income during the last year`) %>%
+  summarize(count = n()) %>%
+  mutate(fraction = round(count/sum(count),2)) %>%
+  filter(`What was your gross household income during the last year` != "Decline to answer") %>%
+  ggplot(aes(x = `What was your gross household income during the last year`, y = count, fill = `What was your gross household income during the last year`)) + geom_bar(stat = "identity") + 
+  labs(x = "Income Bracket", y = "# of Respondents", title = "Visitors by Gross Household Income") + theme(axis.text.x = element_text(angle = 26, hjust = 1)) +  scale_fill_brewer("PuRd") + theme(legend.position = "none") + geom_text(aes(label = fraction), vjust = -0.1, position = position_dodge(0.9), size = 2)
+
+```
+
+*Grouped by source*
+
+More individuals making under 25,000 were most likely present within the in-person source because younger populations were targeted by outreach.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  filter(!is.na(`Respondent ID`)) %>%
+  group_by(`What was your gross household income during the last year`,source) %>%
+  summarize(count = n()) %>%
+  mutate(fraction = round(count/sum(count),2)) %>%
+  filter(`What was your gross household income during the last year` != "Decline to answer") %>%
+  ggplot(aes(x = `What was your gross household income during the last year`, y = count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + 
+  labs(x = "Income Bracket", y = "# of Respondents", title = "Visitors by Gross Household Income") + theme(axis.text.x = element_text(angle = 26, hjust = 1)) + geom_text(aes(label = fraction), vjust = -0.1, position = position_dodge(0.9), size = 2)
+```
+
+#### Family Demographics
+
+There were `r sum(!is.na(clean_all$kids_satisfaction))` individuals who responded to the family question about satisfaction with kids' activities at A2SF. 
+
+Also, 11 respondents specifically mentioned Kids' Activities as one of their 3 favorite offerings. 
+
+Average satisfaction was **7.58** with a standard deviation of **2.50**.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+summary <- clean_all %>%
+  filter(str_detect(`What are your favorite offerings tonight Choose up to three`, "Kids' Activities"))
+
+clean_all$kids_satisfaction <- as.numeric(clean_all$kids_satisfaction)
+
+kids_satisfaction_clean <- na.omit(clean_all$kids_satisfaction)
+
+# Create ggplot object
+ggplot(clean_all, aes(x = 'Kids', y = kids_satisfaction)) +
+  geom_boxplot(fill = 'lightblue', color = 'darkblue') +                           # Boxplot
+  geom_jitter(aes(y = kids_satisfaction), color = "red", width = 0.1, alpha = 0.6) + # Jittered points
+  labs(
+    y = "Kids' Activities Rating (1-10)"
+  ) +
+  ylim(0, 6) +                                                                     # Y-axis limits
+  theme_minimal() +                                                                # Theme for a cleaner look
+  theme(
+    plot.title = element_text(hjust = 0.5),                                        # Center the title
+    axis.title.x = element_text(margin = margin(t = 10)),                          # Add margin to x-axis label
+    axis.title.y = element_text(margin = margin(r = 10))                           # Add margin to y-axis label
+  )
+```
+
+Of these respondents, the age groups indicate both adults and the children that used kids' activities participated in the survey alike. It would be interesting to dive further into these individuals' responses to see what they have to say in the short answer sections.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  filter(!is.na(kids_satisfaction)) %>%
+  group_by(`What is your age`) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  filter(`What is your age` != "Decline to answer") %>%
+  kable(col.names = c("Age Group", "Count"))
+```
+
+The following table shows individuals who mentioned kids' activities as one of their top activities and their short answer responses.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+filter(str_detect(`What are your favorite offerings tonight Choose up to three`, "Kids' Activities")) %>%
+  select(`What is your age`, `What are your favorite offerings tonight Choose up to three`, kids_satisfaction, `Is there anything else you would like to share about Top of the Park or A2SF as an organization`, `What would make it easier for you to participate in A2SF events`,`How did you hear about A2SF at Top of the Park`) %>%
+  kable(col.names = c("Age", "Top 3 Favorite Offerings", "Kids' Activities Satisfaction", "Anything else to share?", "Making it easier to participate", "How did you hear?"))
+```
+
+#### Programming Analysis - Favorite Offerings
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+selections = c("Music at Top of the Park",
+               "Movies by Moonlight",
+               "Special Outdoor Attractions",
+               "Retreat Classes on Power Center lawn",
+               "Food Selections",
+               "The Grove Beverage Garden",
+               "KidZone",
+               "Teen and Adult Activities",
+               "I was invited to an event in the party tent",
+               "Other _______________________")
+
+selection_pattern <- paste0("\\b(", paste(selections, collapse = "|"), ")\\b")
+
+
+clean_all_split <- clean_all %>%
+  mutate(extractions = str_extract_all(`What are your favorite offerings tonight Choose up to three`, selection_pattern))
+
+clean_all_split <- clean_all_split %>%
+  mutate(extractions = map(extractions, ~c(.x, rep(NA, 3 - length(.x)))[1:3])) %>%
+  unnest_wider(extractions, names_sep = "_")
+
+clean_all_split <- clean_all_split %>%
+  rename(fav_1 = extractions_1, fav_2 = extractions_2, fav_3 = extractions_3)
+
+clean_all_split <- clean_all_split %>%
+  select(`Respondent ID`, `Start Date`, `What are your favorite offerings tonight Choose up to three`, fav_1, fav_2, fav_3, `other fav offerings`
+  ) %>%
+  filter(!is.na(`Respondent ID`))
+```
+
+*All favorite offering counts by respondents.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+long_df <- clean_all_split %>%
+  gather(key = "type", value = "offering", fav_1:fav_3, `other fav offerings`) %>%
+  filter(!is.na(offering))
+
+long_df %>%
+  count(offering, sort = TRUE) %>%
+  mutate(percent = round(n/sum(n)*100,2)) %>%
+  kable(col.names = c("Offering", "Frequency", "Percent (%)"))
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+long_df %>%
+  count(offering, sort = TRUE) %>%
+  mutate(percent = round(n/sum(n)*100,2)) %>%
+  filter(n > 1) %>%
+  ggplot(aes(x = reorder(offering,-n), y = n, fill = offering)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Offering", y = "Count", title = "Favorite Offerings")
+```
+
+#### Other Satisfaction Ratings
+
+Welch Two Sample T test is met, meaning there is no difference in responses between in-person and online survey respondents.
+
+Patrons' likelihood to donate (1-10) is **`r round(mean(as.numeric(clean_all$donation), na.rm = TRUE), 2)`** with a standard deviation of **`r round(sd(as.numeric(clean_all$donation), na.rm = TRUE), 2)`.**
+
+Patrons' likelihood to recommend to family or friends (1-10) is **`r round(mean(as.numeric(clean_all$recommend_family), na.rm = TRUE), 2)`** with a standard deviation of **`r round(sd(as.numeric(clean_all$recommend_family), na.rm = TRUE), 2)`.**
+
+Patrons' likelihood to attend again in the future (1-10) is **`r round(mean(as.numeric(clean_all$future_attend), na.rm = TRUE), 2)`** with a standard deviation of **`r round(sd(as.numeric(clean_all$future_attend, na.rm = TRUE)), 2)`.**
+
+Patrons' satisfaction with music (1-10) is **`r round(mean(as.numeric(clean_all$music_satisfaction), na.rm = TRUE), 2)`** with a standard deviation of **`r round(sd(as.numeric(clean_all$music_satisfaction), na.rm = TRUE), 2)`.**
+
+Patrons' satisfaction with A2SF's overall trajectory (1-10) is **`r round(mean(as.numeric(clean_all$overall_trajectory), na.rm = TRUE), 2)`** with a standard deviation of **`r round(sd(as.numeric(clean_all$overall_trajectory), na.rm = TRUE), 2)`.**
+
+### Future Recommendations
+
+**Surveying visitor race and ethnicity**
+
+Moving forward, separate race and ethnicity into 2 distinct questions:
+
+1. "Do you/do you not identify as of Hispanic, Latino, or Spanish origin?"
+2. "With what racial identities do you identify? Select all that apply."
+
+The aim of this question is to assess ethnicity as is currently accepted per U.S. Census. It certainly is not the most comprehensive definition, but it is the current accepted method. This was established in 1997, so it is fairly out of date and may change in the coming years.
+
+Per OMB, there are five categories for data on race:
+
+* American Indian or Alaska Native
+* Asian
+* Black or African American
+* Native Hawaiian or Other Pacific Islander
+* White
+
+Instead of allowing a multiracial category, the OMB adopted a standard of allowing respondents to select one or more races when they self-identify.
+
+Meanwhile, there are two categories for data on ethnicity:
+
+* Hispanic or Latino or Spanish Origin
+* Not Hispanic or Latino or Spanish Origin
+
+Breaking these questions down this way allows for ease of analysis in future visitor surveys.
+

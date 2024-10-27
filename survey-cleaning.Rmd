@@ -1,0 +1,251 @@
+---
+title: "Survey Data Cleaning"
+author: "viwa"
+date: "2024-08-22"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, results = "hide", echo=FALSE, warning= FALSE, message= FALSE}
+library(tidyr)
+library(reshape2)
+library(dplyr)
+library(kableExtra)
+library(viridis)
+library(purrr)
+library(zipcodeR)
+library(usdata)
+library(knitr)
+library(ggplot2)
+library(leaflet)
+library(sf)
+library(tidygeocoder)
+library(lubridate)
+library(tigris)
+library(leaflet.extras)
+library(htmlwidgets)
+library(countries)
+library(cities)
+library(stringr)
+library(rcompanion)
+options(tigris_use_cache = TRUE, tigris_progress = FALSE)
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+in_season <- readxl::read_xlsx("In Season A2SF Survey data.xlsx")
+post_season <- readxl::read_xlsx("Post Season A2SF Survey data.xlsx")
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_respondents <- read.csv("respondent-data.csv", header = TRUE)
+
+```
+
+### 1. Cleaning Post-Season Survey Data
+
+Post-Season survey data was collected via email, social media, and other online methods. As a result, despite reCAPTCHA inclusion, there are high numbers of bot responses within the data set. Initial survey analysis requires cleaning and removing these responses from the dataset.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_respondents <- post_season_respondents %>%
+  select(Respondent.ID,Start.Date,IP.Address,Status,Time.Taken,Email,Name)
+```
+#### Cleaning using IP Address methods.
+
+A separate .csv file on CrowdSignal collected participant data for the post-season survey. This will be cross-joined with the post-season survey data set on primary key "Respondent.ID" to determine the IP Addresses for all respondents. Then, evidence-based IP analysis can determine bot presence.
+
+*First 6 rows of joined table data containing both survey response and participant data.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_ip <- post_season %>%
+  filter(!is.na(`Respondent ID`)) %>%
+  left_join(post_season_respondents, by = c("Respondent ID" = "Respondent.ID"))
+post_season_ip %>%
+  select(`Respondent ID`,IP.Address) %>%
+  head() %>%
+  kable(col.names = c("Respondent ID", "IP Address"))
+```
+
+Grouped by IP.Address in order to count multiple responses for same IP addresses. Because count higher than 1 indicate more than one response, we want to filter.
+
+*First 6 rows after removing responses from duplicated IP Addresses*
+
+As we can see, there are still bots present that will need to be removed through additional methods.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_ip <- post_season_ip %>%
+  group_by(IP.Address) %>%
+  mutate(count = n()) %>%
+  arrange(desc(count)) %>%
+  filter(count == 1) %>%
+  ungroup()
+
+post_season_ip %>%
+  select(`Respondent ID`, IP.Address, `Is there anything else you would like to share about Top of the Park or A2SF as an organization?`) %>%
+  head() %>%
+  kable(col.names = c("Response ID", "IP Address", "Anything else to share?"), booktabs = TRUE) %>%
+  kable_styling(latex_options = "hold_position") %>%
+  column_spec(3, width = "10cm")
+```
+
+We also want to filter on all other selections to double check we aren't losing responses. One address was identified with two responses, but one missed the email address while the other contained one. We write the likely_bots to a new file, "duplicate_ip_address.csv" which is provided in the code file.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+likely_bots <- post_season_ip %>%
+  group_by(IP.Address) %>%
+  mutate(count = n()) %>%
+  arrange(desc(count)) %>%
+  filter(count != 1)
+```
+
+#### Filtering by unusually short survey response duration.
+
+*Using the boxplot method, determine unusually short survey response durations.*
+
+Following IP verification, we can look further into specific responses that may have evaded this method. Another strong indicator of bots are unusually short response durations. Because Time.Taken is a parameter within the post-season-respondents (participants) survey, we can use these numbers to determine unusually short responses.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_ip %>%
+  mutate(minutes_take = Time.Taken/60) %>%
+  ggplot(aes(x = factor(1), y = minutes_take)) + 
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Survey Response Duration", x = "", y = "Minutes Taken") +
+  theme_minimal() + theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+```
+Takeaways: Because only some responses were unusually long, there is no evidence for bots present based on extremely short response times only. However, after writing post_season_ip to a new file, "post_season_cleaned_ip_addresses.csv" there are clearly still bots within the data.
+
+*Top 6 fastest response durations for post-season respondents.*
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_ip %>%
+  arrange(Time.Taken) %>%
+  mutate(
+    duration_min_sec = paste0(floor(Time.Taken / 60), ":", sprintf("%02d", Time.Taken %% 60))
+  ) %>%
+  select(`Respondent ID`, duration_min_sec) %>%
+  head() %>%
+  kable(col.names = c("Respondent ID", "Duration (min:sec)"))
+```
+
+#### Combining manual- and auto-collected parameters to validate participant responses. 
+
+*Remove non-US auto-collected countries and manual zip code entries that are not 5 characters.*
+
+Rationale: Auto-collected countries outside of the United States are unlikely given the scope and target audience of the survey. Additional manual review of row responses for non-US locations indicated bot behavior such as nonsensical free response answers. 
+
+*All non-US Post-Season Responses (n = 10).*
+
+Non-US countries should not have filled out the zip code question. The "Anything to share" column is used as an additional verification of bot-indicating behavior. As a result of this, we can filter these rows out of the dataset further. 
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_ip %>%
+  filter(`Country Code` != "US") %>%
+  select(`Respondent ID`, `Country Name`, `What is your zip code?`,`Is there anything else you would like to share about Top of the Park or A2SF as an organization?`) %>%
+  kable(col.names = c("Respondent ID", "Country", "Zip Code", "Anything else to share?"), booktabs = TRUE) %>%
+  kable_styling(latex_options = "hold_position") %>%
+  column_spec(4, width = "7cm")
+
+```
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_ip <- post_season_ip %>%
+  filter(`Country Code` == "US")
+```
+
+Additionally, zip codes should be 5 characters in length. When we see typos like "4103" instead of "48103", it is possible this is a typo, but we should not assume this to be a zip code in 48103. Further filtering requires the removal of these responses.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+odd_zip <- post_season_ip %>%
+  filter(nchar(`What is your zip code?`) != 5)
+
+odd_zip %>%
+  select(`Respondent ID`,`Country Name`,State,`What is your zip code?`) %>%
+  kable(col.names = c("Respondent ID", "Country", "State", "Zip Code"))
+
+zip_code <- "48103-1736"
+
+post_season_ip <- post_season_ip %>%
+  mutate(`What is your zip code?` = case_when(
+    grepl("-", `What is your zip code?`) ~ sub("-.*", "", zip_code),
+    TRUE ~ `What is your zip code?`
+  )) %>%
+  filter(nchar(`What is your zip code?`) == 5)
+```
+NOTE: Response ID 304681059 seems to be a valid combination of Country, State, and Zip Code, and upon reviewing the other responses, indicates a human responded. This entry is edited and will remain in the dataset, but with only the first 5 digits (48103) instead of including -1736 in the end.
+
+Overall, zip code entries that are not 5 characters are unlikely, and few countries outside the US use postal codes.
+
+*Determine bots using zip code and state collected data.*
+
+Rationale: Because some United States-based responses may also be bots, we have to be creative to identify additional ones. To do this, I use a function to identify states and zip codes and determine whether the zip codes, which respondents manually inputted, match with the states/countries, which was automatically collected from respondents' device locations.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season_ip$`What is your zip code?` <- as.character(post_season_ip$`What is your zip code?`)
+
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+is_bot <- function(zip, state) {
+  if (is.na(zip) || nchar(zip) != 5 || !grepl("^[0-9]+$", zip)) {
+    return(TRUE) 
+  }
+  
+  zip_info <- zipcodeR::reverse_zipcode(zip)
+  
+  if (is.null(zip_info) || nrow(zip_info) == 0) {
+    return(TRUE) 
+  }
+  state <- state2abbr(toupper(state))
+  zip_state <- zip_info$state
+  return(zip_state != state)
+}
+
+
+elim_bots <- post_season_ip %>%
+  mutate(state_zip_match = case_when(
+    mapply(is_bot, `What is your zip code?`, State) ~ "No Match",
+    TRUE ~ "Match"
+  ))
+```
+
+*First six respondent ID's and their state-zip code matching.*
+
+Following identification of "Match" or "Not Match", we filter the full dataset so it only contains "Match" results. Then, we will write to csv a fully cleaned file that can be used in further post-season analysis and data visualization methods.
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+
+elim_bots %>%
+  select(`Respondent ID`, State, `What is your zip code?`, state_zip_match) %>%
+  head() %>%
+  kable(col.names = c("Respondent ID", "State", "Zip Code", "Match?"))
+```
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season1 <- elim_bots %>%
+  filter(state_zip_match == "Match")
+```
+
+*Final cleaned result. There are still some suspicious responses because the short answer does not align well with the question asked, but these are few in number.*
+
+Notably suspect: **304885124, 304722909, 304882174, 304751759**. However, these managed to pass ALL of the following:
+
+* Non-duplicate IP Address sources
+* Normal response duration
+* United States
+* Zip code length is 5 characters
+* State (auto-collected) and Zip code (manual-collected) match
+
+As a result, we will leave these responses in the dataset, but should exercise caution when performing analysis. 
+
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+post_season1 %>%
+  select(`Respondent ID`,State,`What is your zip code?`,`Is there anything else you would like to share about Top of the Park or A2SF as an organization?`,Email,state_zip_match) %>%
+  head() %>%
+  kable(col.names = c("ID", "State", "Zip Code", "Anything else?", "Email", "Match?"), booktabs = TRUE) %>%
+  kable_styling(latex_options = "hold_position") %>%
+  column_spec(4, width = "4cm")
+```
+
+##### *The final output of this file is named "post_season-processed.csv".*
