@@ -4,7 +4,7 @@ output:
   html_document:
     css: styles.css
     toc: true
-    toc_depth: 6
+    toc_depth: 4
     toc_float: true
   pdf_document: default
 ---
