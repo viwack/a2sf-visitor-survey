@@ -1,12 +1,12 @@
 ---
 title: ""
 output:
+  pdf_document: default
   html_document:
     css: styles.css
     toc: true
     toc_depth: 4
     toc_float: true
-  pdf_document: default
 ---
 
 # **Ann Arbor Summer Festival Visitor Survey Final Report**
