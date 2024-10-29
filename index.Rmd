@@ -842,6 +842,17 @@ clean_all_split <- clean_all_split %>%
   filter(!is.na(`Respondent ID`))
 ```
 
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  separate_rows(`What were the biggest factors that influenced your decision whether or not to attend Select all that apply`, sep = ", ") %>% 
+  count(`What were the biggest factors that influenced your decision whether or not to attend Select all that apply`, name = "count") %>%
+  arrange(desc(count)) %>%
+  filter(!is.na(`What were the biggest factors that influenced your decision whether or not to attend Select all that apply`)) %>%
+  filter(`What were the biggest factors that influenced your decision whether or not to attend Select all that apply` != "Decline to Answer") %>%
+  ggplot(aes(x = reorder(`What were the biggest factors that influenced your decision whether or not to attend Select all that apply`,-count), y = count, fill = `What were the biggest factors that influenced your decision whether or not to attend Select all that apply`)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Factors", y = "Count", title = "Why do Respondents Attend?") + theme(legend.position = "none")
+```
+
+
 *All favorite offering counts by respondents.*
 
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
@@ -861,6 +872,23 @@ long_df %>%
   mutate(percent = round(n/sum(n)*100,2)) %>%
   filter(n > 1) %>%
   ggplot(aes(x = reorder(offering,-n), y = n, fill = offering)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Offering", y = "Count", title = "Favorite Offerings")
+```
+
+*How many times did respondents attend Top of the Park this season?*
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  mutate(times_visited = coalesce(
+    `How many times did you attend Top of the Park this season`,
+    `How many times each year do you typically attend Top of the Park`
+  )) %>%
+  group_by(times_visited) %>%
+  summarise(count = n()) %>%
+  ggplot(aes(x = reorder(times_visited, -count), y = count, fill = times_visited)) + geom_bar(stat = "identity") + 
+  labs(x = "Times Visited", y = "Count", title = "Engagement Frequency") +
+  theme(axis.text.x = element_text(angle = 26, hjust = 1)) + 
+  geom_text(aes(label = count), vjust = -0.1, position = position_dodge(0.9), size = 2) + theme(legend.position = "none")
+
+
 ```
 
 #### **Other Satisfaction Ratings**
