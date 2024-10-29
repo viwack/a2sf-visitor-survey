@@ -181,17 +181,17 @@ contributing $340,000 or 20% of our yearly budget. How likely are you to donate 
 20. If you would like to be entered to win a $50 gift card, please provide your email address.
 21. If you provided your email, do you want to be added to our mailing list?
 
-#### ** Project Timeline**
+#### **Project Timeline**
 
-January - April 2024
+*January - April 2024*
 
 CTAC student team consulted with A2SF to design a survey and disemmination plan for the Summer 2024 season.
 
-June 14 - 30 2024
+*June 14 - 30 2024*
 
 CTAC students supported in-person data collection measures during the summer festival. Data was not collected on June 19 and 22, and the festival was dark on June 17 and 24.
 
-August - September 2024
+*August - September 2024*
 
 CTAC student team analyzed the in-person and postseason data, combining the two sets into a single 2024 A2SF dataset following robust cleaning.
 
@@ -303,29 +303,25 @@ in-person, likely because canvassers shared that characteristic.
 
 ### Summary of Cleaning Process
 
-Post-Season survey data was collected via email, social media, and other online methods. As a result, despite reCAPTCHA inclusion, there are high numbers of bot responses within the data set. Initial survey analysis requires cleaning and removing these responses from the dataset.
+Post-Season survey data was collected via email, social media, and other online methods. As a result, despite reCAPTCHA inclusion, there were high numbers of bot responses within the data set. Initial survey analysis required cleaning and removing these responses from the dataset.
 
-A separate .csv file on CrowdSignal collected participant data for the post-season survey. This will be cross-joined with the post-season survey data set on primary key "Respondent.ID" to determine the IP Addresses for all respondents. Then, evidence-based IP analysis can determine bot presence.
+A separate survey on CrowdSignal collected participant data for the post-season survey. This was cross-joined with the post-season survey on primary key "Respondent.ID" to determine the IP Addresses for all respondents. Then, IP address analysis could be used to determine bot presence.
 
-Grouped by IP.Address in order to count multiple responses for same IP addresses. Because count higher than 1 indicate more than one response, we want to filter.
+First, we grouped by IP.Address in order to count multiple responses for the same IP address. We shouldn't be expecting more than one response from a single address, so we removed any duplicates from the dataset.
 
-We also want to filter on all other selections to double check we aren't losing responses. One address was identified with two responses, but one missed the email address while the other contained one. We write the likely_bots to a new file, "duplicate_ip_address.csv" which is provided in the code file.
+Following IP verification, we further examined specific responses that may have evaded this filter. Another strong indicator of bots was unusually short response duration. Because Time.Taken is a parameter within the post-season-respondents (participants) survey, we used these numbers to determine unusually short responses. Through this, we found that there is no evidence for bots present based on extremely short response times only. However, after examining post_season_ip to a new file, "post_season_cleaned_ip_addresses.csv," there were clearly still bots within the data based on responses and short answer indicators.
 
-Following IP verification, we can look further into specific responses that may have evaded this method. Another strong indicator of bots are unusually short response durations. Because Time.Taken is a parameter within the post-season-respondents (participants) survey, we can use these numbers to determine unusually short responses.
+To filter further, we looked at non-US auto-collected countries and manual zip code entries that were not 5 characters. Since auto-collected countries outside of the United States are unlikely given the scope and target audience of the survey, we removed those responses. Additional manual review of row responses for non-US locations indicated bot behavior such as illogical free response answers. 
 
-Because only some responses were unusually long, there is no evidence for bots present based on extremely short response times only. However, after writing post_season_ip to a new file, "post_season_cleaned_ip_addresses.csv" there are clearly still bots within the data.
+Non-US countries should not have filled out the zip code question. The "Anything to share" column was used as an additional verification of bot-indicating behavior.
 
-Removed non-US auto-collected countries and manual zip code entries that are not 5 characters. Since auto-collected countries outside of the United States are unlikely given the scope and target audience of the survey. Additional manual review of row responses for non-US locations indicated bot behavior such as nonsensical free response answers. 
+Zip codes should be 5 characters in length. When we see typos like "4103" instead of "48103", it is possible this is a typo, but we should not assume this to be a zip code in 48103.
 
-Non-US countries should not have filled out the zip code question. The "Anything to share" column is used as an additional verification of bot-indicating behavior. As a result of this, we can filter these rows out of the dataset further. 
+Because some United States-based responses may also be bots, we have to be creative to identify additional ones. To do this, we used a function to identify states and zip codes and determine whether the zip codes, which respondents manually inputted, match with the states/countries, which was automatically collected from respondents' device locations.
 
-Additionally, zip codes should be 5 characters in length. When we see typos like "4103" instead of "48103", it is possible this is a typo, but we should not assume this to be a zip code in 48103. Further filtering requires the removal of these responses.
+Following identification of "Match" or "Not Match", we filtered the full dataset so it only contains "Match" results. Then, we created a fully cleaned file that can be used in further post-season analysis and data visualization methods.
 
-Because some United States-based responses may also be bots, we have to be creative to identify additional ones. To do this, I use a function to identify states and zip codes and determine whether the zip codes, which respondents manually inputted, match with the states/countries, which was automatically collected from respondents' device locations.
-
-Following identification of "Match" or "Not Match", we filter the full dataset so it only contains "Match" results. Then, we will write to csv a fully cleaned file that can be used in further post-season analysis and data visualization methods.
-
-Final cleaned result may still some suspicious responses because the short answer does not align well with the question asked, but these are few in number.*
+Final cleaned results may still some suspicious responses because the short answer does not align well with the question asked, but these are few in number.*
 
 Notably suspect: **304885124, 304722909, 304882174, 304751759**. However, these managed to pass ALL of the following:
 
@@ -337,7 +333,7 @@ Notably suspect: **304885124, 304722909, 304882174, 304751759**. However, these 
 
 As a result, we will leave these responses in the dataset, but should exercise caution when performing analysis. 
 
-The final output of this cleaned file is named "post_season-processed.csv."
+The final output of this cleaned file was created and named "post_season-processed.csv."
 
 ### **Data Visualization**
 
