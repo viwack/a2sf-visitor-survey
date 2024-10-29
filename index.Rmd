@@ -40,6 +40,7 @@ library(countries)
 library(cities)
 library(stringr)
 library(rcompanion)
+library(scales)
 options(tigris_use_cache = TRUE, tigris_progress = FALSE)
 ```
 
@@ -180,7 +181,23 @@ contributing $340,000 or 20% of our yearly budget. How likely are you to donate 
 20. If you would like to be entered to win a $50 gift card, please provide your email address.
 21. If you provided your email, do you want to be added to our mailing list?
 
-**Survey Data Cleaning**
+#### ** Project Timeline**
+
+January - April 2024
+
+CTAC student team consulted with A2SF to design a survey and disemmination plan for the Summer 2024 season.
+
+June 14 - 30 2024
+
+CTAC students supported in-person data collection measures during the summer festival. Data was not collected on June 19 and 22, and the festival was dark on June 17 and 24.
+
+August - September 2024
+
+CTAC student team analyzed the in-person and postseason data, combining the two sets into a single 2024 A2SF dataset following robust cleaning.
+
+#### **Survey Data Cleaning**
+
+The in-person survey had 183 respondents and the postseason survey had 349 responses. After bot removal of 162 responses from the postseason survey, the final postseason survey sample size was n = 187.
 
 A problem that arose during the analysis for post-season data was the presence of bots. Despite inclusion
 of reCAPTCHA tests in the CrowdSignal survey platform, approx. 150 responses on the post-season survey
@@ -216,7 +233,7 @@ uploading that image makes it more challenging to respond.
 2. IP restriction
 3. Email restriction
 
-**Understanding Respondent Demographics**
+#### **Understanding Respondent Demographics**
 
 The results demonstrate that while ethnicity aligns with the expected Washtenaw County results, race and
 ethnicity clearly demonstrates that respondent demographics were not in line. Using the following strategies
@@ -261,7 +278,7 @@ demographics are as follows:
 7. Some Other Race alone: 1.88%
 8. Two or More Races: 7.44%
 
-**Important Takeaways**
+#### **Important Takeaways**
 
 Race/Ethnicity: There is no statistical difference in the race demographic breakdown between in-person
 and online-collected survey responses, but there is a difference between both individual survey source datasets
@@ -278,7 +295,7 @@ significant majority of visitors coming from Washtenaw County zip codes. \
 Age: Older populations more frequently responded online, while younger populations were over-sampled
 in-person, likely because canvassers shared that characteristic.
 
-**References**
+#### **References**
 
 • 2021 American Community Survey \
 • Standards for Maintaining, Collecting, and Presenting Federal Data on Race and Ethnicity
@@ -324,7 +341,7 @@ The final output of this cleaned file is named "post_season-processed.csv."
 
 ### **Data Visualization**
 
-#### Where are A2SF Visitors From?
+#### **Where are A2SF Visitors From?**
 
 *Summary of all represented zip codes of A2SF visitors.*
 
@@ -375,6 +392,34 @@ ggplot(adding_fractions, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill 
   theme(legend.position = "none")
 ```
 
+```{r, echo=FALSE, warning= FALSE, message= FALSE}
+clean_all %>%
+  # Select relevant columns
+  select(`Respondent ID`, source, `What is your zip code`, State) %>%
+  left_join(zip_code_db, by = c("What is your zip code" = "zipcode")) %>%
+  mutate(state_abbr = state2abbr(State)) %>%
+  select(`Respondent ID`, `What is your zip code`, State, state_abbr, major_city, county) %>%
+  mutate(region = case_when(
+    major_city == "Ann Arbor" & county == "Washtenaw County" ~ "Ann Arbor",
+    county == "Washtenaw County" & major_city != "Ann Arbor" ~ "Washtenaw (excluding Ann Arbor)",
+    TRUE ~ "Outside Washtenaw County"
+  )) %>%
+  # Group by region
+  group_by(region) %>%
+  summarise(count = n()) %>%
+  # Calculate fraction
+  mutate(percentage = count / sum(count) * 100) %>%
+  # Plotting the pie chart
+  ggplot(aes(x = "", y = percentage, fill = region)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  labs(title = "Simplified Summary", x = NULL, y = NULL) +
+  theme_void() + scale_fill_brewer("PuRd") +
+  theme(legend.title = element_blank()) +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_stack(vjust = 0.5), size = 4)
+```
+
 *All visitors by county. Numbers above bars represent the proportion of visitors from represented counties.*
 
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
@@ -387,7 +432,7 @@ combined_zip_count_all %>%
   summarize(count = sum(combined)) %>%
   filter(!is.na(county)) %>%
   mutate(frac = round(count/sum(count),2)) %>%
-  ggplot(aes(reorder(county, -count), frac, fill = county)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 30, vjust = 0.7, hjust = 0.5)) + geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2) + theme(legend.position = "none") + labs(y = "Proportion of Visitors", x = "County", title = "Visitors by County - All")
+  ggplot(aes(reorder(county, -count), frac, fill = county)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 30, vjust = 0.7, hjust = 0.5)) + geom_text(aes(label = paste0(100*frac, " %")), vjust = -0.1, position = position_dodge(0.9), size = 2) + theme(legend.position = "none") + labs(y = "Proportion of Visitors", x = "County", title = "Visitors by County (n = 370)")
 ```
 
 *In-season Visitors*
@@ -470,7 +515,7 @@ ggplot(zip_ps, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = as.facto
   theme(legend.position = "none")
 ```
 
-#### Age Analysis
+#### **Age Analysis**
 
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
 desired_order <- c("Under 18 years", "18 to 24 years", "25 to 34 years", 
@@ -480,10 +525,16 @@ clean_all$`What is your age` <- factor(clean_all$`What is your age`, levels = de
 
 clean_all %>%
   filter(`What is your age` != "Decline to answer") %>%
-  group_by(source, `What is your age`) %>%
+  group_by(source) %>%
+  mutate(total_source = n()) %>%
+  group_by(source, `What is your age`, total_source) %>%
   summarise(count = n()) %>%
-  mutate(frac = round(count/sum(count),2)) %>%
-  ggplot(aes(x = `What is your age`, y = count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Age Group", y = "Count", title = "Respondents by Age and Survey Type") + geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2)
+  mutate(frac = round(count/total_source, 2)) %>%
+  ggplot(aes(x = `What is your age`, y = count, fill = source)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(x = "Age Group", y = "Count", title = "Respondents by Age and Survey Type") + 
+  geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2)
 ```
 
 Older age groups answer in higher proportions during the post-season, while younger groups were over-sampled in the in-season group. Pearson's Chi-squared test indicates that there is a difference in respondents by age group between the two survey sources.
@@ -498,7 +549,7 @@ print(chi_sq_result)
 
 
 
-#### Gender Analysis
+#### **Gender Analysis**
 
 *Visitors by their self-identified gender.*
 
@@ -508,7 +559,7 @@ clean_all %>%
   summarise(count = n()) %>%
   filter(`With what gender do you most identify` != "Prefer to self-describe, below") %>%
   mutate(frac = round(count/sum(count),2)) %>%
-  ggplot(aes(x = reorder(`With what gender do you most identify`,-count), y = count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Gender Identity", y = "Count", title = "Grouped Respondents by Self-Identified Gender and Survey Type") + geom_text(aes(label = frac), vjust = -0.1, position = position_dodge(0.9), size = 2)
+  ggplot(aes(x = reorder(`With what gender do you most identify`,-count), y = count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Gender Identity", y = "Count", title = "Self-Identified Gender and Survey Type") + geom_text(aes(label = paste0(100*frac, " %")), vjust = -0.1, position = position_dodge(0.9), size = 2)
 ```
 
 *Other self-described gender identities.*
@@ -522,9 +573,9 @@ clean_all %>%
 ```
 
 
-#### Race/Ethnicity Analysis
+#### **Race/Ethnicity Analysis**
 
-*All unique race/ethnicity identities*
+*All unique race/ethnicity identity selections.*
 
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
 clean_all %>%
@@ -649,7 +700,7 @@ clean_all %>%
   filter(!is.na(`other race`)) %>%
   kable(col.names = c("Survey", "Other Identities", "Count"))
 ```
-#### Educational Level
+#### **Educational Level**
 
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
 
@@ -659,11 +710,12 @@ clean_all$`What is your education level`[clean_all$`What is your education level
 clean_all %>%
   group_by(`What is your education level`) %>%
   summarise(count = n()) %>%
+  mutate(frac = count/sum(count)) %>%
   filter(`What is your education level` != "Decline to answer") %>%
-  ggplot(aes(x = reorder(`What is your education level`, -count), y = count, fill = `What is your education level`)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Education", y = "Count", title = " Respondents by Educational Level") + geom_text(aes(label = count), vjust = -0.1, position = position_dodge(0.9), size = 2)
+  ggplot(aes(x = reorder(`What is your education level`, -count), y = count, fill = `What is your education level`)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Education", y = "Count", title = " Respondents by Educational Level") + geom_text(aes(label = paste0(round(100*frac, 1), " %")), vjust = -0.1, position = position_dodge(0.9), size = 2)
 ```
 
-#### Gross Household Income
+#### **Gross Household Income**
 
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
 ordered_income <- c("Less than $25,000",
@@ -686,7 +738,7 @@ clean_all %>%
   mutate(fraction = round(count/sum(count),2)) %>%
   filter(`What was your gross household income during the last year` != "Decline to answer") %>%
   ggplot(aes(x = `What was your gross household income during the last year`, y = count, fill = `What was your gross household income during the last year`)) + geom_bar(stat = "identity") + 
-  labs(x = "Income Bracket", y = "# of Respondents", title = "Visitors by Gross Household Income") + theme(axis.text.x = element_text(angle = 26, hjust = 1)) +  scale_fill_brewer("PuRd") + theme(legend.position = "none") + geom_text(aes(label = fraction), vjust = -0.1, position = position_dodge(0.9), size = 2)
+  labs(x = "Income Bracket", y = "# of Respondents", title = "Visitors by Gross Household Income") + theme(axis.text.x = element_text(angle = 26, hjust = 1)) +  scale_fill_brewer("PuRd") + theme(legend.position = "none") + geom_text(aes(label = paste0(fraction*100, " %")), vjust = -0.1, position = position_dodge(0.9), size = 2)
 
 ```
 
@@ -697,15 +749,18 @@ More individuals making under 25,000 were most likely present within the in-pers
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
 clean_all %>%
   filter(!is.na(`Respondent ID`)) %>%
-  group_by(`What was your gross household income during the last year`,source) %>%
-  summarize(count = n()) %>%
-  mutate(fraction = round(count/sum(count),2)) %>%
   filter(`What was your gross household income during the last year` != "Decline to answer") %>%
-  ggplot(aes(x = `What was your gross household income during the last year`, y = count, fill = source)) + geom_bar(stat = "identity", position = "dodge") + 
-  labs(x = "Income Bracket", y = "# of Respondents", title = "Visitors by Gross Household Income") + theme(axis.text.x = element_text(angle = 26, hjust = 1)) + geom_text(aes(label = fraction), vjust = -0.1, position = position_dodge(0.9), size = 2)
+  group_by(source, `What was your gross household income during the last year`) %>%
+  summarize(count = n()) %>%
+  mutate(fraction = round(count / sum(count), 2)) %>%
+  ggplot(aes(x = `What was your gross household income during the last year`, y = count, fill = source)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs(x = "Income Bracket", y = "# of Respondents", title = "Gross Household Income by Source") + 
+  theme(axis.text.x = element_text(angle = 26, hjust = 1)) + 
+  geom_text(aes(label = paste0(100*fraction, " %")), vjust = -0.1, position = position_dodge(0.9), size = 2)
 ```
 
-#### Family Demographics
+#### **Family Demographics**
 
 There were `r sum(!is.na(clean_all$kids_satisfaction))` individuals who responded to the family question about satisfaction with kids' activities at A2SF. 
 
@@ -758,7 +813,7 @@ filter(str_detect(`What are your favorite offerings tonight Choose up to three`,
   kable(col.names = c("Age", "Top 3 Favorite Offerings", "Kids' Activities Satisfaction", "Anything else to share?", "Making it easier to participate", "How did you hear?"))
 ```
 
-#### Programming Analysis - Favorite Offerings
+#### **Programming Analysis - Favorite Offerings**
 
 ```{r, echo=FALSE, warning= FALSE, message= FALSE}
 selections = c("Music at Top of the Park",
@@ -812,7 +867,7 @@ long_df %>%
   ggplot(aes(x = reorder(offering,-n), y = n, fill = offering)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(x = "Offering", y = "Count", title = "Favorite Offerings")
 ```
 
-#### Other Satisfaction Ratings
+#### **Other Satisfaction Ratings**
 
 Welch Two Sample T test is met, meaning there is no difference in responses between in-person and online survey respondents.
 
